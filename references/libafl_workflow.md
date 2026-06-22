@@ -1,0 +1,215 @@
+# LibAFL Workflow
+
+LibAFL is a component library. Build the fuzzer by selecting input, corpus, scheduler, mutator, executor, observer, feedback, objective, and monitor.
+
+## Local Documentation Index
+
+Use these local LibAFL paths as the implementation index:
+
+| Need | Path |
+| --- | --- |
+| Core concepts | `LibAFL/docs/src/core_concepts/{corpus,executor,feedback,mutator,observer}.md` |
+| Step-by-step bytes fuzzer | `LibAFL/docs/listings/baby_fuzzer/listing-01` through `listing-06` |
+| Simple Rust fuzzer | `LibAFL/fuzzers/baby/baby_fuzzer/` |
+| Custom input and mutator | `LibAFL/fuzzers/baby/tutorial/src/{input.rs,mutator.rs,lib.rs}` |
+| Command executor | `LibAFL/fuzzers/baby/backtrace_baby_fuzzers/command_executor/` and `LibAFL/crates/libafl/src/executors/command.rs` |
+| Fork isolation | `LibAFL/fuzzers/baby/backtrace_baby_fuzzers/*fork*` and `LibAFL/crates/libafl/src/executors/inprocess_fork/` |
+| Forkserver | `LibAFL/fuzzers/forkserver/` and `LibAFL/crates/libafl/src/executors/forkserver.rs` |
+| AFL-instrumented forkserver asset | `assets/rust_libafl_afl_forkserver_fuzzer/` |
+| Binary-only offline harness | `LibAFL/fuzzers/binary_only/{frida_executable_libpng,qemu_coverage,qemu_launcher}` |
+| pylibafl setup | `LibAFL/bindings/pylibafl/README.md` and `LibAFL/bindings/pylibafl/test.py` |
+| pylibafl sugar binding | `LibAFL/crates/libafl_sugar/src/inprocess.rs` |
+| Component source | `LibAFL/crates/libafl/src/{corpus,feedbacks,observers,mutators}/` |
+
+## Selection Rule
+
+Use `pylibafl` when:
+
+- The harness can be a Python callable.
+- The target is small enough for in-process execution.
+- You only need byte inputs and basic coverage/crash objectives.
+- You are prototyping mutators or campaign plumbing.
+
+Use Rust LibAFL when:
+
+- You need forkserver, QEMU, Frida, Unicorn, or persistent mode.
+- The target is C/C++/Rust and in-process Python is inappropriate.
+- You need custom input structs, grammar/stateful mutators, custom feedbacks, or multi-core scaling.
+- The harness can crash or corrupt process state and needs fork isolation.
+- The target is a large application and you can expose a narrow parser harness instead of repeatedly starting the full program.
+
+AFL++ compiler wrappers and QEMU/QASAN helpers may be used around a Rust LibAFL fuzzer, but `afl-fuzz` is not the campaign fuzzer for this skill.
+
+When using the workspace-local AFL++ helper build, source its exports first:
+
+```bash
+source validation/env_setup_afl_qemu/reports/env_exports.sh
+```
+
+Use live black-box fuzzing when:
+
+- The target is a real Cisco device or service without instrumentation.
+- Firmware cannot be repacked.
+- A full emulated runtime is unavailable.
+
+## pylibafl Pattern
+
+Preflight:
+
+```bash
+python3 scripts/pylibafl_import_probe.py
+
+cd LibAFL/bindings/pylibafl
+python3 -m venv .env
+. .env/bin/activate
+unset CONDA_PREFIX  # needed if the shell started inside conda
+pip install maturin distlib patchelf
+maturin develop
+timeout 15 python test.py
+```
+
+Do not assume `python3 -c 'import pylibafl'` works just because LibAFL has build artifacts. First run the import probe.
+
+If `maturin develop` fails because Linux pulls in `libafl_qemu`, Rust treats deprecations as errors, or LLVM/QEMU prerequisites are missing, mark pylibafl as unavailable for that campaign and use Rust LibAFL or the local CLI supervisor. Do not spend Cisco campaign time repairing pylibafl unless the selected target truly needs a Python-callable in-process harness.
+
+Minimal Python shape:
+
+```python
+import pylibafl.sugar as sugar
+
+fuzzer = sugar.InProcessBytesCoverageSugar(
+    input_dirs=["./in"],
+    output_dir="./out",
+    broker_port=1337,
+    cores=[0],
+    iterations=1000,
+    timeout=1,
+)
+
+def harness(data: bytes):
+    target_parse(data)
+
+fuzzer.run(harness)
+```
+
+Run pylibafl fuzzers under a wall-clock watchdog during smoke tests. The `iterations` parameter is useful, but the agent should not rely on it as the only stop condition. The bundled scaffold `assets/python_pylibafl_bytes_fuzzer/pylibafl_simple_bytes_fuzzer.py` provides `--wall-time-sec` for this.
+
+If the target is a CLI program, do not use pylibafl in-process. Use `scripts/local_cli_mutation_fuzzer.py` for smoke testing or Rust LibAFL `CommandExecutor`/forkserver for the real campaign.
+
+## Rust LibAFL Pattern
+
+Start from `LibAFL/docs/listings/baby_fuzzer/listing-06` for an in-process fuzzer. Verify the local LibAFL baseline with:
+
+```bash
+cargo check --manifest-path LibAFL/docs/listings/baby_fuzzer/listing-06/Cargo.toml
+```
+
+The required components are:
+
+- `BytesInput` or a custom `Input`.
+- Corpus: `InMemoryCorpus` for interesting inputs and `OnDiskCorpus` for crashes.
+- Executor: `InProcessExecutor`, `InProcessForkExecutor`, `ForkserverExecutor`, or QEMU/Frida executor.
+- Observer: coverage map, cmp log, stdout/stderr, timing, or custom response observer.
+- Feedback: `MaxMapFeedback` for coverage-like novelty, custom feedback for response/state novelty.
+- Objective: `CrashFeedback`, timeout feedback, sanitizer finding, or custom live-device anomaly.
+- Stage: `StdMutationalStage` with havoc mutations, token/grammar mutators, or custom protocol mutator.
+
+For file or CLI targets, start from `LibAFL/fuzzers/baby/backtrace_baby_fuzzers/command_executor/src/main.rs` or a forkserver example. The adaptation point is `spawn_child`: write the input to stdin or a temp file, pass that file path where the target expects `@@`, set a short timeout, and store crashes in `OnDiskCorpus`.
+
+This skill also bundles a minimal command-template project at [assets/rust_libafl_cli_command_fuzzer](../assets/rust_libafl_cli_command_fuzzer). It uses:
+
+- `CommandExecutor::builder().parse_afl_cmdline(...)` for command-template `@@` file input.
+- `ConstFeedback(false)` for no-coverage command targets, so the corpus does not grow from fake feedback.
+- `CrashFeedback` with `OnDiskCorpus` for signal crashes.
+- A bounded `--iterations` loop for smoke and regression testing.
+
+Build check:
+
+```bash
+cargo check --manifest-path assets/rust_libafl_cli_command_fuzzer/Cargo.toml
+```
+
+Run shape:
+
+```bash
+cargo run --manifest-path assets/rust_libafl_cli_command_fuzzer/Cargo.toml -- \
+  --in campaigns/local/seeds \
+  --out campaigns/local/rust-libafl-run001 \
+  --token-file campaigns/local/format.dict \
+  --iterations 20 \
+  --timeout-ms 1000 \
+  -- ./target_wrapper.sh @@
+```
+
+On Unix, LibAFL `CommandExecutor` treats signal termination as `Crash`; a normal nonzero exit code is not enough. For CLI parsers, wrap the target so ordinary parse errors exit 0 and real signals/timeouts remain observable.
+
+For AFL-compatible forkserver targets, use [assets/rust_libafl_afl_forkserver_fuzzer](../assets/rust_libafl_afl_forkserver_fuzzer):
+
+```bash
+cargo run --manifest-path assets/rust_libafl_afl_forkserver_fuzzer/Cargo.toml -- \
+  --in campaigns/local/seeds \
+  --out campaigns/local/libafl-forkserver-run001 \
+  --token-file campaigns/local/format.dict \
+  --iterations 1000 \
+  --timeout-ms 1200 \
+  -- ./afl_instrumented_harness @@
+```
+
+Compile the harness with `afl-clang-fast`/`afl-clang-lto` and optional allowlists, then let LibAFL own scheduling, mutation, crash corpus, and reporting.
+
+For structured inputs, implement:
+
+- owned serializable input type
+- `Input`
+- `HasTargetBytes`
+- `HasLen`
+- `Hash`
+- fixup logic for length/checksum fields
+
+For token-heavy formats, use LibAFL token/encoded-input mutators or load tokens into custom mutators. Seed these from dictionaries, magic values, GUIDs, and constants recovered from reverse engineering.
+
+## Large Source-Built Harness Pattern
+
+Use this when a full program starts slowly or has many unrelated modules:
+
+- Move the target parser/demux/decode call into a small harness that accepts bytes and length.
+- Initialize process-global state once only if the state is reset safely between iterations.
+- Prefer `InProcessForkExecutor`, forkserver, or persistent mode over repeated process startup.
+- Keep coverage focused on the parser module or selected functions. In AFL++ this is partial instrumentation; in LibAFL/QEMU/Frida this means module/function scoped coverage or custom feedback.
+- Use ASan/UBSan locally when building from source, and treat sanitizer output as a crash objective.
+
+Exercise 7 style VLC/ASF lessons:
+
+- Convert file input to a memory buffer and call the demux/parser entry point directly.
+- Keep VLC/application initialization outside the hot path only when that state is required.
+- Use a parser file/function allowlist so coverage rewards ASF demuxing, not unrelated media-player dispatch.
+- Feed ASF object/GUID dictionaries into LibAFL token mutators.
+- Prefer forkserver or in-process-fork isolation unless persistent mode has a documented state reset.
+
+## Binary-Only Offline Pattern
+
+For extracted Cisco binaries or closed-source training targets:
+
+- Validate architecture, loader, library root, and command template before execution.
+- Use LibAFL QEMU/Frida examples under `LibAFL/fuzzers/binary_only/` as starting points.
+- Choose a persistent loop or hook only at a documented function boundary.
+- Record how the boundary was found: IDA/Ghidra xrefs, callgrind, dynamic traces, or prior validated material.
+- Run a short stability check before a long campaign.
+- If sanitizer-style replay such as QASAN/Frida fault reporting is unavailable, keep findings unconfirmed until normal replay and root-cause mapping are sufficient.
+
+Exercise 8 style closed-source lessons:
+
+- Resolve launcher scripts to the actual ELF and record required loader/library environment.
+- Match target architecture to the QEMU and sanitizer helpers before execution.
+- Treat persistent addresses as build-specific evidence; validate the address and register reset before a campaign.
+- Use AFL++ `afl-qemu-trace` and QASAN only for auxiliary execution, persistent-mode validation, or replay/triage when the LibAFL QEMU/Frida fuzzer is the campaign driver.
+- If the proprietary target or execution authorization is missing, stop at `blocked`/`unconfirmed`; do not simulate a crash result.
+
+## No-Instrumentation Cisco Mode
+
+When coverage is unavailable, do not force LibAFL coverage feedback. Either:
+
+- Use a live driver with custom feedback from responses and health checks, or
+- Use LibAFL only in an offline parser harness where QEMU/Frida/coverage is practical.
+
+For real devices, preserve a campaign budget and stop conditions in the manifest. Treat response novelty as a lead, not proof.

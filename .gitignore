@@ -1,0 +1,58 @@
+# Keep this repository portable: track only the skill itself and reusable
+# scaffolds. Local training material, third-party checkouts, live-device
+# evidence, generated targets, and campaign outputs stay out of git.
+
+# Ignore everything by default.
+*
+
+# Repository metadata files.
+!.gitignore
+!SKILL.md
+!README.md
+!LICENSE
+
+# Skill references.
+!references/
+!references/**
+
+# Runtime primitives.
+!scripts/
+!scripts/*.py
+
+# Reusable assets and fuzzer scaffolds.
+!assets/
+!assets/campaign_manifest.template.json
+
+!assets/python_pylibafl_bytes_fuzzer/
+!assets/python_pylibafl_bytes_fuzzer/README.md
+!assets/python_pylibafl_bytes_fuzzer/*.py
+
+!assets/rust_libafl_cli_command_fuzzer/
+!assets/rust_libafl_cli_command_fuzzer/Cargo.toml
+!assets/rust_libafl_cli_command_fuzzer/Cargo.lock
+!assets/rust_libafl_cli_command_fuzzer/src/
+!assets/rust_libafl_cli_command_fuzzer/src/**
+
+!assets/rust_libafl_afl_forkserver_fuzzer/
+!assets/rust_libafl_afl_forkserver_fuzzer/Cargo.toml
+!assets/rust_libafl_afl_forkserver_fuzzer/Cargo.lock
+!assets/rust_libafl_afl_forkserver_fuzzer/src/
+!assets/rust_libafl_afl_forkserver_fuzzer/src/**
+
+# Re-ignore generated caches/build outputs even inside allowed directories.
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/target/
+**/debug/
+**/release/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Explicitly ignored non-portable work areas.
+Fuzzing101/
+LibAFL/
+fuzzingbook-notebooks/
+validation/
+targets/
+agents/

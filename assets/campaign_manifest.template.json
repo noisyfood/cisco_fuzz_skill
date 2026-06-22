@@ -1,0 +1,90 @@
+{
+  "campaign_type": "",
+  "output": {
+    "campaign_dir": ""
+  },
+  "fuzzer": {
+    "mode": "",
+    "auxiliary_tools": {
+      "afl_clang_fast": "",
+      "afl_clang_lto": "",
+      "afl_qemu_trace": "",
+      "qasan": "",
+      "notes": ""
+    }
+  },
+  "local_training": {
+    "target": {
+      "kind": "existing_file",
+      "path": "",
+      "source_path": "",
+      "source_url": "",
+      "source_sha256": "",
+      "build_output": "",
+      "input_format": "",
+      "reproducer_template": ""
+    },
+    "allowed_dependency_installs": [],
+    "instrumentation_mode": "",
+    "initial_seed_dir": "",
+    "fuzzer_mode": ""
+  },
+  "device": {
+    "ip_or_hostname": "",
+    "allowed_interfaces_or_vrf": "",
+    "allowed_ports_protocols": [],
+    "credentials_policy": "",
+    "safety_scope": ""
+  },
+  "shell_debug": {
+    "shell_available": "",
+    "access_method": "",
+    "gdbserver_allowed": "",
+    "core_collection_allowed": "",
+    "privileged_actions_require_human_approval": false
+  },
+  "reverse_engineering": {
+    "firmware_or_extraction_root": "",
+    "main_binaries": [],
+    "ida_mcp_available": "",
+    "symbols_or_base_addresses": ""
+  },
+  "offline_execution": {
+    "target_kind": "",
+    "target_elf": "",
+    "launcher_script": "",
+    "architecture": "",
+    "loader": "",
+    "library_root": "",
+    "required_env": {},
+    "license_or_authorization": "",
+    "qemu_helper": "",
+    "qemu_helper_arch": "",
+    "sanitizer_helper": "",
+    "sanitizer_helper_arch": "",
+    "persistent_mode": "",
+    "persistent_loop_address": "",
+    "persistent_address_provenance": "",
+    "persistent_stability_plan": ""
+  },
+  "recovery": {
+    "maintenance_window": "",
+    "oob_console": "",
+    "reload_or_power_authority": "",
+    "config_backup_status": "",
+    "recovery_owner": ""
+  },
+  "live_safety": {
+    "baseline_seed_dir": "",
+    "fuzz_seed_dir": "",
+    "health_probe_plan": [],
+    "stop_conditions": [],
+    "max_first_contact_cases": 0
+  },
+  "authorization": {
+    "user_authorized_campaign": false,
+    "no_state_changing_ops_without_explicit_approval": false,
+    "no_shell_without_explicit_approval": false,
+    "no_debugger_without_explicit_approval": false
+  }
+}

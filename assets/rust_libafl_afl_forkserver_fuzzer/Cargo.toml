@@ -1,0 +1,9 @@
+[package]
+name = "rust_libafl_afl_forkserver_fuzzer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libafl = { path = "../../LibAFL/crates/libafl" }
+libafl_bolts = { path = "../../LibAFL/crates/libafl_bolts" }
+wide = "=1.2.0"
