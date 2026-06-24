@@ -24,10 +24,10 @@ Example:
 ```bash
 python3 scripts/pylibafl_import_probe.py
 python3 assets/python_pylibafl_bytes_fuzzer/pylibafl_simple_bytes_fuzzer.py \
-  --harness-script validation/pylibafl_demo/noop_harness.py \
+  --harness-script campaigns/<name>/harness.py \
   --harness-func harness \
-  --seed-dir validation/pylibafl_demo/seeds \
-  --out-dir validation/pylibafl_demo/out \
+  --seed-dir campaigns/<name>/seeds \
+  --out-dir campaigns/<name>/pylibafl_run \
   --iterations 1000 \
   --wall-time-sec 30 \
   --broker-port 2337 \

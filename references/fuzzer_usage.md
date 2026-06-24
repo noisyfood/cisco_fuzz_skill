@@ -16,16 +16,19 @@ source validation/env_setup_afl_qemu/reports/env_exports.sh
 | --- | --- |
 | Python-callable parser or tiny in-process harness | `assets/python_pylibafl_bytes_fuzzer/pylibafl_simple_bytes_fuzzer.py` scaffold or direct `pylibafl` sugar |
 | C/C++/Rust CLI or file parser | `assets/rust_libafl_cli_command_fuzzer` |
-| Local CLI smoke or fuzzer-flow validation | `scripts/local_cli_mutation_fuzzer.py` |
+| Local CLI smoke or fuzzer-flow validation | `assets/local_cli_smoke_fuzzer/local_cli_mutation_fuzzer.py` scaffold |
 | Source-built large parser/application | Narrow ASan/coverage harness, then Rust LibAFL forkserver/in-process-fork |
+| Extracted Cisco `.so` library | `shared_library_harness` manifest, narrow Rust LibAFL harness, fork/QEMU/Frida isolation when needed |
 | Text/XML/CLI formats | Dictionary/token mutators plus bounded argument-profile fuzzing |
 | Cisco offline parser harness | Rust LibAFL with coverage/QEMU/Frida only when practical |
 | AFL-instrumented source harness | `assets/rust_libafl_afl_forkserver_fuzzer` |
 | Binary-only offline parser | LibAFL QEMU/Frida in a local lab, with AFL++ QEMU/QASAN only for auxiliary execution/replay |
-| Cisco live device with no instrumentation | Rust LibAFL/pylibafl protocol driver gated by `scripts/live_driver_gate.py`; `scripts/live_probe_executor.py` only for baseline/replay/probe |
+| Cisco live device with no instrumentation | Rust LibAFL/pylibafl protocol driver gated by `scripts/live_driver_gate.py`; `scripts/live_probe_executor.py` only for baseline/seed replay |
 | Structured Cisco live protocol | Protocol-aware pylibafl or Rust LibAFL driver with baseline, field sweep, one-shot replay, explicit armed DoS trigger, and health/reload evidence collection |
 
 Do not treat instrumentation as mandatory for Cisco live-device work. Use instrumentation for local and offline harnesses when available; use response/health feedback for live hardware.
+
+Before selecting a campaign fuzzer, apply [harness_design.md](harness_design.md), [dictionary_strategy.md](dictionary_strategy.md), [coverage_and_reachability.md](coverage_and_reachability.md), and [fuzzing_obstacles.md](fuzzing_obstacles.md). These references are gates: an agent should record the harness reachability, token plan, progress signal, and obstacle-handling strategy before starting mutation.
 
 ## pylibafl Simple Harness
 
@@ -112,10 +115,10 @@ The target must start an AFL-compatible forkserver. If the forkserver handshake 
 
 ## Local CLI Smoke
 
-`scripts/local_cli_mutation_fuzzer.py` is a validation helper, not the main Cisco fuzzer. Use it to check seeds, mutation plumbing, command execution, result capture, and reproducer formatting before building a pylibafl/Rust LibAFL harness.
+`assets/local_cli_smoke_fuzzer/local_cli_mutation_fuzzer.py` is a validation scaffold, not the main Cisco fuzzer. Use it to check seeds, mutation plumbing, command execution, result capture, and reproducer formatting before building a pylibafl/Rust LibAFL harness.
 
 ```bash
-python3 scripts/local_cli_mutation_fuzzer.py \
+python3 assets/local_cli_smoke_fuzzer/local_cli_mutation_fuzzer.py \
   --cmd-template 'target_program @@' \
   --seed-dir campaigns/local/seeds \
   --out-dir campaigns/local/smoke \
@@ -169,6 +172,38 @@ Exercise 7 pattern:
 - Feed format dictionaries such as ASF GUIDs and object headers into LibAFL token mutators.
 - Keep the full application binary out of the hot loop unless startup state is required for reachability.
 
+## Shared Library Harnesses
+
+Use this for extracted Cisco `.so` files with parser-like functions or protocol
+helpers. Set `offline_execution.target_kind=shared_library_harness` and read
+[shared_library_harness.md](shared_library_harness.md) before building.
+
+Default fuzzer choices:
+
+- Rust LibAFL forkserver or in-process-fork when a C/C++ harness can load the
+  library and call a stable parser entry.
+- LibAFL QEMU/Frida when the library architecture is not native or binary-only
+  internal coverage/hooks are needed.
+- Rust LibAFL command executor when the harness is safest as a separate CLI that
+  accepts `@@`.
+- pylibafl only for a small, deterministic Python-callable wrapper. Do not use
+  `ctypes` in-process for unstable native code unless the campaign explicitly
+  accepts process-corruption risk and has a replay path.
+
+Required smoke checks:
+
+- Load the `.so` with the planned loader and library root.
+- Call the selected function with one valid seed and one malformed non-crashing
+  seed.
+- Prove repeated runs of the same seed are deterministic.
+- Record ABI notes: argument types, ownership, required initialization, and
+  return/error convention.
+- Record whether instrumentation observes library internals or only the harness.
+
+If a candidate function is internal-only, do not guess the call boundary. Record
+the IDA/Ghidra evidence, expected register/state setup, and why the function can
+be called safely before adding it to the harness.
+
 ## Offline Binary-Only QEMU/Frida
 
 Use this for extracted Cisco binaries or closed-source local training targets, not for live hardware.
@@ -218,7 +253,7 @@ python3 scripts/live_driver_gate.py \
   --cases 5
 ```
 
-For simple TCP/UDP request/response probes, use the bundled executor:
+For simple TCP/UDP request/response baseline or seed replay, use the bundled executor:
 
 ```bash
 python3 scripts/live_probe_executor.py \
@@ -238,7 +273,7 @@ python3 scripts/live_probe_executor.py \
   --stop-on-reset
 ```
 
-`live_probe_executor.py` revalidates the full manifest and rejects runs when host, protocol/port, baseline seed directory, fuzz seed directory, or case count diverge. `--lab-mode` is only for loopback smoke tests unless `--allow-lab-network` is explicitly used for private lab addresses; never use it for a real Cisco campaign.
+`live_probe_executor.py` revalidates the full manifest and rejects runs when host, protocol/port, baseline seed directory, fuzz seed directory, or case count diverge. It replays existing seed files; it does not mutate inputs. `--lab-mode` is only for loopback smoke tests unless `--allow-lab-network` is explicitly used for private lab addresses; never use it for a real Cisco campaign.
 
 ## Structured Live Protocol Driver Pattern
 

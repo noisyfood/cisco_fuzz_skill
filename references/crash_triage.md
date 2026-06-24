@@ -2,7 +2,7 @@
 
 ## First Response
 
-When a crash-like anomaly appears, stop fuzzing and preserve evidence.
+When a crash-like anomaly appears, stop fuzzing and preserve evidence. Include the coverage or reachability signal defined in [coverage_and_reachability.md](coverage_and_reachability.md), because a timeout or crash artifact without reachability context is usually only a lead.
 
 Save:
 
@@ -16,6 +16,20 @@ Save:
 - Core/crash directory listings.
 
 Do not continue fuzzing until the case has been replayed and classified.
+
+## Local Sanitizer Replay
+
+For source-built local or offline harnesses, sanitizer replay is preferred when available:
+
+```bash
+ASAN_OPTIONS=abort_on_error=1:detect_leaks=0:symbolize=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+./harness ./crashcase > reports/sanitizer_replay.txt 2>&1
+```
+
+Use ASan/UBSan for rebuilt source or harness code. Use QASAN, Frida, or QEMU sanitizer-style replay only as auxiliary evidence for binary-only targets, and record architecture, loader, library root, and helper version. If sanitizer tooling is unavailable, keep the case `unconfirmed` until normal replay and root-cause mapping are sufficient.
+
+Disable leak detection during high-throughput fuzzing unless leak triage is the objective. Re-enable targeted leak checks only after crash reproduction is stable.
 
 ## Live Device Checks
 
@@ -116,6 +130,10 @@ gdb -q --batch \
 ```
 
 Map addresses to the extracted firmware and reverse-engineering database. For PIE/ASLR binaries, account for module load bases from `/proc/<pid>/maps` or core metadata.
+For shared-library harnesses, always save the `.so` path, loader/library root,
+module base, selected symbol or internal function address, and harness command
+environment. Reject crashes that are only in harness glue, dependency loading,
+or impossible fuzzing-only states.
 
 The report should connect:
 

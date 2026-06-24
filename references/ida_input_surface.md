@@ -23,6 +23,9 @@ Start from imported APIs and strings:
 - HTTP/WebUI: route strings, nginx/OpenResty Lua routes, handler maps, JSON/XML/YANG names.
 - CLI/YANG: command strings, actionpoint names, `tailf:exec`, RESTCONF operation names.
 - Binary protocol: magic constants, TLV type tables, error strings, transaction IDs.
+- Shared libraries: exported parser symbols, protocol/helper names, vtables,
+  function-pointer tables, constructor/init routines, xrefs from daemons, and
+  strings that match file extensions, routes, CLI/YANG tokens, or TLV names.
 - Memory sinks: `memcpy`, `strcpy`, `strncpy`, `snprintf`, allocator/free pairs, vector/table indexing, recursion.
 
 ## Dataflow Questions
@@ -36,6 +39,9 @@ For each candidate function, answer:
 - Are global row buffers, cached pointers, or free/replace patterns used across requests?
 - Does parser state require authentication or configuration before the deep path is reachable?
 - Can a valid seed reach this parser without modifying the device?
+- For `.so` targets, is the function exported or internal-only, what
+  initialization is required, and what ABI/calling convention evidence supports
+  the harness plan?
 
 ## Output Record
 
@@ -43,21 +49,24 @@ Write one JSONL record per candidate:
 
 ```json
 {
-  "id": "TARGET-PROTO-FUNCTION",
+  "id": "TARGET-SERVICE-FUNCTION",
   "binary": "iosd",
-  "entry": "tcp/4788",
-  "function": "0x9990ea0",
-  "input_source": "XMCP TLV body",
-  "fields": ["type_be16", "len_be16", "value", "padding"],
-  "reachability": "preauth outer parser, deep parser gated",
-  "sink": "cursor advance by declared length",
-  "fuzzer_mode": "protocol_live_driver_then_rust_libafl_model",
-  "seeds": ["baseline unauth frame", "username TLV frame"],
+  "library": "libtarget.so",
+  "entry": "tcp/<port>",
+  "function": "0xFUNCTION_START",
+  "symbol_status": "exported|internal|function-table",
+  "input_source": "protocol frame body",
+  "fields": ["message_type", "declared_length", "value", "padding_or_checksum"],
+  "reachability": "outer parser reached by safe seed; deep parser gated by state or field",
+  "abi_notes": "buf,len arguments; context initialized by init_candidate",
+  "sink": "input-derived length controls cursor, allocation, copy, index, or recursion",
+  "fuzzer_mode": "shared_library_harness_then_rust_libafl",
+  "seeds": ["safe baseline frame", "minimal structured frame"],
   "stop_conditions": ["timeout", "reset", "TRACEBACK", "core file"]
 }
 ```
 
-Do not start fuzzing from a decompiler suspicion alone. First produce at least one seed that reaches the parser or explain why the campaign is blocked.
+Do not start fuzzing from a decompiler suspicion alone. First produce at least one seed that reaches the parser or explain why the campaign is blocked. Feed recovered constants, field names, enum values, and magic bytes into [dictionary_strategy.md](dictionary_strategy.md), and record the reachability signal defined by [coverage_and_reachability.md](coverage_and_reachability.md).
 
 ## MCP Analysis Checklist
 
@@ -69,5 +78,8 @@ For each candidate selected from `ida_surface_candidates.jsonl`, collect:
 - Branches that reject malformed inputs before the sink.
 - Any field fixups required for a seed to pass the shallow parser.
 - Crash mapping fields: module base, function start, basic block address, and source line if symbols exist.
+- For shared libraries, required constructors/init functions, dependency
+  libraries, global state, allocator ownership, and whether coverage can observe
+  library internals.
 
 Use modern `ida_*`/`idautils` APIs for any IDAPython additions. Avoid legacy `idc` helpers.

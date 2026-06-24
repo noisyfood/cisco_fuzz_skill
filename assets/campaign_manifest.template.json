@@ -29,6 +29,13 @@
     "initial_seed_dir": "",
     "fuzzer_mode": ""
   },
+  "offline_scope": {
+    "source_materials": "",
+    "execution_authorization": "",
+    "live_device_available": "",
+    "device_context_required": "",
+    "notes": ""
+  },
   "device": {
     "ip_or_hostname": "",
     "allowed_interfaces_or_vrf": "",
@@ -66,6 +73,20 @@
     "persistent_loop_address": "",
     "persistent_address_provenance": "",
     "persistent_stability_plan": ""
+  },
+  "shared_library": {
+    "library_path": "",
+    "candidate_functions": [],
+    "input_format": "",
+    "harness_plan": "",
+    "harness_source_path": "",
+    "harness_build_output": "",
+    "harness_execution": "",
+    "abi_notes": "",
+    "state_reset_plan": "",
+    "seed_dir": "",
+    "dictionary_path": "",
+    "instrumentation_notes": ""
   },
   "recovery": {
     "maintenance_window": "",

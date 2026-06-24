@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Small file-input mutation supervisor for local CLI fuzzing smoke tests."""
+"""Small file-input mutation fuzzer scaffold for local CLI smoke tests.
+
+This is an asset, not a runtime primitive. Use it to validate seeds, wrappers,
+dictionary tokens, execution capture, and reproducer formatting before building
+a real pylibafl/Rust LibAFL campaign fuzzer.
+"""
 
 from __future__ import annotations
 

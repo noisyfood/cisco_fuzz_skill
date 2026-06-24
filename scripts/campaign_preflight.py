@@ -11,7 +11,7 @@ from typing import Any
 
 
 VALID_TYPES = {"local_training", "cisco_offline", "cisco_live"}
-OFFLINE_TARGET_KINDS = {"binary_only", "source_harness", "analysis_only"}
+OFFLINE_TARGET_KINDS = {"binary_only", "source_harness", "shared_library_harness", "analysis_only"}
 
 
 COMMON_REQUIRED = [
@@ -30,6 +30,19 @@ LOCAL_REQUIRED = [
 ]
 
 CISCO_OFFLINE_REQUIRED = [
+    "offline_scope.source_materials",
+    "offline_scope.execution_authorization",
+    "offline_scope.live_device_available",
+    "offline_scope.device_context_required",
+    "offline_execution.target_kind",
+    "reverse_engineering.firmware_or_extraction_root",
+    "reverse_engineering.main_binaries",
+    "reverse_engineering.ida_mcp_available",
+    "reverse_engineering.symbols_or_base_addresses",
+    "authorization.user_authorized_campaign",
+]
+
+CISCO_OFFLINE_DEVICE_REQUIRED = [
     "device.ip_or_hostname",
     "device.allowed_interfaces_or_vrf",
     "device.allowed_ports_protocols",
@@ -39,12 +52,6 @@ CISCO_OFFLINE_REQUIRED = [
     "shell_debug.access_method",
     "shell_debug.gdbserver_allowed",
     "shell_debug.core_collection_allowed",
-    "offline_execution.target_kind",
-    "reverse_engineering.firmware_or_extraction_root",
-    "reverse_engineering.main_binaries",
-    "reverse_engineering.ida_mcp_available",
-    "reverse_engineering.symbols_or_base_addresses",
-    "authorization.user_authorized_campaign",
 ]
 
 BINARY_ONLY_REQUIRED = [
@@ -52,10 +59,24 @@ BINARY_ONLY_REQUIRED = [
     "offline_execution.architecture",
     "offline_execution.loader",
     "offline_execution.library_root",
-    "offline_execution.required_env",
     "offline_execution.license_or_authorization",
     "offline_execution.qemu_helper",
     "offline_execution.qemu_helper_arch",
+]
+
+SHARED_LIBRARY_REQUIRED = [
+    "shared_library.library_path",
+    "shared_library.candidate_functions",
+    "shared_library.input_format",
+    "shared_library.harness_plan",
+    "shared_library.harness_execution",
+    "shared_library.abi_notes",
+    "shared_library.state_reset_plan",
+    "shared_library.seed_dir",
+    "offline_execution.architecture",
+    "offline_execution.loader",
+    "offline_execution.library_root",
+    "offline_execution.license_or_authorization",
 ]
 
 CISCO_LIVE_REQUIRED = [
@@ -158,8 +179,22 @@ def validate_fuzzer_mode(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
+def truthy_text(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"yes", "true", "1", "available", "required", "enabled"}
+
+
+def validate_required_env_object(manifest: dict[str, Any]) -> list[str]:
+    value = get_path(manifest, "offline_execution.required_env")
+    if value is None:
+        return ["offline_execution.required_env"]
+    if not isinstance(value, dict):
+        return ["offline_execution.required_env must be a JSON object; use {} when no extra env is required"]
+    return []
+
+
 def validate_binary_only(manifest: dict[str, Any]) -> list[str]:
     errors = validate_required(manifest, BINARY_ONLY_REQUIRED)
+    errors.extend(validate_required_env_object(manifest))
     target_arch = normalize_arch(get_path(manifest, "offline_execution.architecture"))
     qemu_arch = normalize_arch(get_path(manifest, "offline_execution.qemu_helper_arch"))
     sanitizer_arch = normalize_arch(get_path(manifest, "offline_execution.sanitizer_helper_arch"))
@@ -190,24 +225,63 @@ def validate_binary_only(manifest: dict[str, Any]) -> list[str]:
     return errors
 
 
+def validate_shared_library_harness(manifest: dict[str, Any]) -> list[str]:
+    errors = validate_required(manifest, SHARED_LIBRARY_REQUIRED)
+    errors.extend(validate_required_env_object(manifest))
+    target_arch = normalize_arch(get_path(manifest, "offline_execution.architecture"))
+    qemu_arch = normalize_arch(get_path(manifest, "offline_execution.qemu_helper_arch"))
+    sanitizer_arch = normalize_arch(get_path(manifest, "offline_execution.sanitizer_helper_arch"))
+
+    qemu_helper = str(get_path(manifest, "offline_execution.qemu_helper") or "").strip()
+    if qemu_helper and qemu_helper.lower() not in {"none", "unavailable", "not_applicable", "not applicable"}:
+        if not is_filled(get_path(manifest, "offline_execution.qemu_helper_arch")):
+            errors.append("offline_execution.qemu_helper_arch is required when qemu_helper is set")
+        elif target_arch and qemu_arch and target_arch != qemu_arch:
+            errors.append("offline_execution.qemu_helper_arch must match offline_execution.architecture")
+
+    sanitizer_helper_raw = str(get_path(manifest, "offline_execution.sanitizer_helper") or "").strip()
+    sanitizer_helper = sanitizer_helper_raw.lower()
+    if sanitizer_helper not in {"", "none", "unavailable", "not_applicable", "not applicable"}:
+        if not is_filled(get_path(manifest, "offline_execution.sanitizer_helper_arch")):
+            errors.append("offline_execution.sanitizer_helper_arch is required when sanitizer_helper is set")
+        elif target_arch and sanitizer_arch and target_arch != sanitizer_arch:
+            errors.append("offline_execution.sanitizer_helper_arch must match offline_execution.architecture")
+
+    build_output = str(get_path(manifest, "shared_library.harness_build_output") or "").strip()
+    if build_output and not is_filled(build_output):
+        errors.append("shared_library.harness_build_output must be filled when present")
+
+    return errors
+
+
 def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     missing = validate_required(manifest, COMMON_REQUIRED)
-    missing.extend(validate_fuzzer_mode(manifest))
     campaign_type = get_path(manifest, "campaign_type")
     if campaign_type not in VALID_TYPES:
         missing.append("campaign_type must be one of: " + ", ".join(sorted(VALID_TYPES)))
         return missing
 
     if campaign_type == "local_training":
+        missing.extend(validate_fuzzer_mode(manifest))
         missing.extend(validate_required(manifest, LOCAL_REQUIRED))
     elif campaign_type == "cisco_offline":
         missing.extend(validate_required(manifest, CISCO_OFFLINE_REQUIRED))
         target_kind = str(get_path(manifest, "offline_execution.target_kind") or "").strip().lower()
+        if target_kind != "analysis_only":
+            missing.extend(validate_fuzzer_mode(manifest))
+        if truthy_text(get_path(manifest, "offline_scope.live_device_available")) or truthy_text(get_path(manifest, "offline_scope.device_context_required")):
+            missing.extend(validate_required(manifest, CISCO_OFFLINE_DEVICE_REQUIRED))
         if target_kind and target_kind not in OFFLINE_TARGET_KINDS:
-            missing.append("offline_execution.target_kind must be binary_only, source_harness, or analysis_only")
+            missing.append(
+                "offline_execution.target_kind must be binary_only, source_harness, "
+                "shared_library_harness, or analysis_only"
+            )
         elif target_kind == "binary_only":
             missing.extend(validate_binary_only(manifest))
+        elif target_kind == "shared_library_harness":
+            missing.extend(validate_shared_library_harness(manifest))
     elif campaign_type == "cisco_live":
+        missing.extend(validate_fuzzer_mode(manifest))
         missing.extend(validate_required(manifest, CISCO_LIVE_REQUIRED))
         first_contact = get_path(manifest, "live_safety.max_first_contact_cases")
         if isinstance(first_contact, (int, float)) and first_contact > 10:
@@ -305,6 +379,51 @@ def validate_paths(manifest: dict[str, Any], workspace: Path, create_dirs: bool)
                 qemu_helper = resolve_from_workspace(qemu_helper_text, workspace)
                 if not qemu_helper.is_file():
                     errors.append("offline_execution.qemu_helper must exist when given as a path")
+            sanitizer_helper_raw = str(get_path(manifest, "offline_execution.sanitizer_helper") or "").strip()
+            sanitizer_helper = sanitizer_helper_raw.lower()
+            if sanitizer_helper not in {"", "none", "unavailable", "not_applicable", "not applicable"}:
+                if "/" in sanitizer_helper_raw or sanitizer_helper_raw.startswith("."):
+                    sanitizer_path = resolve_from_workspace(sanitizer_helper_raw, workspace)
+                    if not sanitizer_path.is_file():
+                        errors.append("offline_execution.sanitizer_helper must exist when given as a path")
+        elif target_kind == "shared_library_harness":
+            library_path = resolve_from_workspace(str(get_path(manifest, "shared_library.library_path")), workspace)
+            if not library_path.is_file():
+                errors.append("shared_library.library_path must be an existing .so file")
+
+            library_root = resolve_from_workspace(str(get_path(manifest, "offline_execution.library_root")), workspace)
+            if not library_root.exists():
+                errors.append("offline_execution.library_root must exist")
+
+            seed_dir = resolve_from_workspace(str(get_path(manifest, "shared_library.seed_dir")), workspace)
+            if not is_under(seed_dir, workspace):
+                errors.append("shared_library.seed_dir must be under the current workspace")
+            elif not seed_dir.is_dir():
+                errors.append("shared_library.seed_dir must be an existing directory")
+            elif not has_nonempty_file(seed_dir):
+                errors.append("shared_library.seed_dir must contain at least one non-empty seed file")
+
+            harness_source_text = str(get_path(manifest, "shared_library.harness_source_path") or "").strip()
+            if harness_source_text:
+                harness_source = resolve_from_workspace(harness_source_text, workspace)
+                if not is_under(harness_source, workspace):
+                    errors.append("shared_library.harness_source_path must be under the current workspace")
+                elif not harness_source.exists():
+                    errors.append("shared_library.harness_source_path must exist when set")
+
+            harness_output_text = str(get_path(manifest, "shared_library.harness_build_output") or "").strip()
+            if harness_output_text:
+                harness_output = resolve_from_workspace(harness_output_text, workspace)
+                if not is_under(harness_output, campaign_dir):
+                    errors.append("shared_library.harness_build_output must be under output.campaign_dir")
+
+            qemu_helper_text = str(get_path(manifest, "offline_execution.qemu_helper") or "").strip()
+            if qemu_helper_text.lower() not in {"", "none", "unavailable", "not_applicable", "not applicable"}:
+                if "/" in qemu_helper_text or qemu_helper_text.startswith("."):
+                    qemu_helper = resolve_from_workspace(qemu_helper_text, workspace)
+                    if not qemu_helper.is_file():
+                        errors.append("offline_execution.qemu_helper must exist when given as a path")
+
             sanitizer_helper_raw = str(get_path(manifest, "offline_execution.sanitizer_helper") or "").strip()
             sanitizer_helper = sanitizer_helper_raw.lower()
             if sanitizer_helper not in {"", "none", "unavailable", "not_applicable", "not applicable"}:

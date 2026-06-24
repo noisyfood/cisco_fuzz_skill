@@ -27,12 +27,23 @@ If the command fails, stop and ask the user for the missing information. Do not 
 
 For local training, prepare the seed directory in the workspace before preflight, but do not execute the target before preflight passes. `campaign_preflight.py` validates that the local target exists, seed directories contain at least one non-empty file, live seed directories exist, and campaign output stays under the current workspace.
 
-Every campaign must name a `pylibafl` or Rust LibAFL fuzzer in `fuzzer.mode`. Local training manifests may also keep the legacy `local_training.fuzzer_mode`, but Cisco offline/live campaigns must use the top-level `fuzzer.mode`. AFL++ tools may be listed as auxiliary compiler/QEMU/QASAN tooling, but `afl-fuzz` must not be the selected fuzzer. Smoke/probe helpers such as `local_cli_mutation_fuzzer.py` and `live_probe_executor.py` are not valid campaign fuzzers.
+Every execution campaign must name a `pylibafl` or Rust LibAFL fuzzer in `fuzzer.mode`. `cisco_offline` campaigns with `offline_execution.target_kind=analysis_only` may set `fuzzer.mode` to `none` until execution is authorized. Local training manifests may also keep the legacy `local_training.fuzzer_mode`, but Cisco offline/live campaigns must use the top-level `fuzzer.mode`. AFL++ tools may be listed as auxiliary compiler/QEMU/QASAN tooling, but `afl-fuzz` must not be the selected fuzzer. Smoke/replay helpers such as `local_cli_mutation_fuzzer.py` and `live_probe_executor.py` are not valid campaign fuzzers.
+
+## Offline Scope
+
+For `cisco_offline`, fill `offline_scope` first:
+
+- `source_materials`: firmware image, extraction root, unpacked package, source tree, or analysis bundle being used.
+- `execution_authorization`: whether local execution, QEMU/Frida, sanitizer replay, or analysis-only work is authorized.
+- `live_device_available`: `yes` only when an entity device is part of this offline campaign.
+- `device_context_required`: `yes` only when replay, shell evidence, device-specific configuration, or later live validation is required.
+
+If both `live_device_available` and `device_context_required` are `no`, preflight does not require `device.*` or `shell_debug.*` fields for the offline campaign. Do not invent placeholder device values.
 
 ## Campaign Types
 
 - `local_training`: local parser or harness used to validate the workflow. Requires target path or planned build output, input format, allowed dependency installs, instrumentation mode, seed dir, fuzzer mode, output dir, and authorization.
-- `cisco_offline`: firmware/extraction analysis and offline parser harnessing. Requires device scope, shell/debug availability, offline execution metadata, firmware/extraction root, main binaries, IDA/MCP availability, symbols/base information, output dir, fuzzer mode, and authorization. If no live device or shell is available, record that explicitly in the manifest instead of leaving fields blank.
+- `cisco_offline`: firmware/extraction analysis and offline parser or shared-library harnessing. Requires `offline_scope`, offline execution metadata, firmware/extraction root, main binaries or libraries, IDA/MCP availability, symbols/base information, output dir, fuzzer mode for execution campaigns, and authorization. Device and shell/debug fields are required only when `offline_scope.live_device_available` or `offline_scope.device_context_required` is `yes`.
 - `cisco_live`: real Cisco hardware. Requires device scope, shell/debug policy, reverse-engineering context, output dir, recovery plan, baseline seeds, fuzz seeds, health probes, stop conditions, fuzzer mode, and explicit safety acknowledgements.
 
 For `cisco_live`, `live_safety.max_first_contact_cases` must be `1..10`.
@@ -55,9 +66,15 @@ Live probe tools must bind their runtime arguments to this manifest. A run shoul
 
 Set `offline_execution.target_kind` for `cisco_offline` campaigns:
 
-- `binary_only`: an extracted or proprietary ELF will be executed. Preflight requires the real ELF, architecture, loader, library root, required environment, license/authorization, QEMU helper and QEMU architecture. If a sanitizer helper such as QASAN is set, its architecture must match the target. If persistent mode is enabled, the manifest must include the loop address, provenance, and stability plan.
+- `binary_only`: an extracted or proprietary ELF will be executed. Preflight requires the real ELF, architecture, loader, library root, `required_env` JSON object (use `{}` when no extra env is needed), license/authorization, QEMU helper and QEMU architecture. If a sanitizer helper such as QASAN is set, its architecture must match the target. If persistent mode is enabled, the manifest must include the loop address, provenance, and stability plan.
 - `source_harness`: source or harness materials will be built locally. Record build/output details in campaign notes and keep the source under the workspace.
-- `analysis_only`: no local execution is authorized. Do not fuzz until the user provides execution authorization and a valid fuzzer mode.
+- `shared_library_harness`: an extracted `.so` will be loaded by a local harness. Preflight requires the library path, candidate functions, input format, harness plan, execution strategy, ABI notes, state-reset plan, seed directory, architecture, loader, library root, `required_env` JSON object (use `{}` when no extra env is needed), and authorization. If QEMU or sanitizer helpers are set, their architecture must match the target. Read [shared_library_harness.md](shared_library_harness.md) before writing or running the harness.
+- `analysis_only`: no local execution is authorized. `fuzzer.mode` may be `none`; do not fuzz until the user changes to an execution target kind and provides execution authorization plus a valid pylibafl or Rust LibAFL mode.
+
+For `shared_library_harness`, keep `shared_library.harness_build_output` under
+`output.campaign_dir` when it is set. `shared_library.harness_source_path` must
+stay under the workspace. The seed directory must already contain at least one
+non-empty seed before preflight passes.
 
 ## Required Acknowledgements
 

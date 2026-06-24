@@ -21,11 +21,16 @@
 
 # Reusable assets and fuzzer scaffolds.
 !assets/
+!assets/README.md
 !assets/campaign_manifest.template.json
 
 !assets/python_pylibafl_bytes_fuzzer/
 !assets/python_pylibafl_bytes_fuzzer/README.md
 !assets/python_pylibafl_bytes_fuzzer/*.py
+
+!assets/local_cli_smoke_fuzzer/
+!assets/local_cli_smoke_fuzzer/README.md
+!assets/local_cli_smoke_fuzzer/*.py
 
 !assets/rust_libafl_cli_command_fuzzer/
 !assets/rust_libafl_cli_command_fuzzer/Cargo.toml

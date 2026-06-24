@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Conservative live-device probe/repro executor for TCP/UDP request/response protocols.
+"""Conservative live-device baseline/replay executor for TCP/UDP protocols.
 
-This is intentionally not the default high-volume fuzzer. Use it only after the
-skill preflight has approved a live Cisco campaign, or in explicit lab mode.
+This is not a fuzzer. It replays seed files at low rate after the skill
+preflight has approved a live Cisco campaign, or in explicit lab mode.
 """
 
 from __future__ import annotations
@@ -10,8 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
-import random
 import socket
 import sys
 import time
@@ -40,56 +38,6 @@ def load_seeds(seed_dir: Path) -> list[tuple[str, bytes]]:
     if not seeds:
         raise SystemExit(f"no non-empty seed files in {seed_dir}")
     return seeds
-
-
-def mutate(data: bytes, rng: random.Random) -> tuple[bytes, dict[str, object]]:
-    buf = bytearray(data)
-    ops: list[dict[str, object]] = []
-    rounds = rng.randint(1, 4)
-
-    for _ in range(rounds):
-        op = rng.choice(["flip", "set", "insert", "delete", "repeat", "splice"])
-        if op in {"flip", "set"} and buf:
-            pos = rng.randrange(len(buf))
-            old = buf[pos]
-            if op == "flip":
-                bit = 1 << rng.randrange(8)
-                buf[pos] ^= bit
-                ops.append({"op": op, "pos": pos, "bit": bit, "old": old, "new": buf[pos]})
-            else:
-                val = rng.choice([0, 1, 2, 7, 15, 16, 31, 32, 63, 64, 127, 128, 254, 255, rng.randrange(256)])
-                buf[pos] = val
-                ops.append({"op": op, "pos": pos, "old": old, "new": val})
-        elif op == "insert":
-            pos = rng.randrange(len(buf) + 1)
-            chunk_len = rng.randint(1, min(32, max(1, len(data))))
-            chunk = bytes(rng.randrange(256) for _ in range(chunk_len))
-            buf[pos:pos] = chunk
-            ops.append({"op": op, "pos": pos, "len": chunk_len})
-        elif op == "delete" and buf:
-            pos = rng.randrange(len(buf))
-            end = min(len(buf), pos + rng.randint(1, 32))
-            del buf[pos:end]
-            ops.append({"op": op, "pos": pos, "len": end - pos})
-        elif op == "repeat" and buf:
-            pos = rng.randrange(len(buf))
-            end = min(len(buf), pos + rng.randint(1, 16))
-            count = rng.randint(2, 8)
-            buf[pos:end] = buf[pos:end] * count
-            ops.append({"op": op, "pos": pos, "len": end - pos, "count": count})
-        elif op == "splice" and len(buf) > 1:
-            pos = rng.randrange(len(buf))
-            end = min(len(buf), pos + rng.randint(1, 32))
-            dst = rng.randrange(len(buf) + 1)
-            buf[dst:dst] = buf[pos:end]
-            ops.append({"op": op, "src": pos, "dst": dst, "len": end - pos})
-
-    max_len = max(1, int(os.environ.get("CISCO_FUZZ_MAX_CASE_LEN", "8192")))
-    if len(buf) > max_len:
-        del buf[max_len:]
-        ops.append({"op": "truncate", "max_len": max_len})
-
-    return bytes(buf), {"ops": ops}
 
 
 def send_tcp(host: str, port: int, payload: bytes, timeout: float) -> tuple[str, bytes, float]:
@@ -273,10 +221,9 @@ def main() -> int:
     parser.add_argument("--seed-dir", required=True, type=Path)
     parser.add_argument("--baseline-seed-dir", type=Path, required=True)
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--cases", type=int, default=5)
+    parser.add_argument("--cases", type=int, default=5, help="maximum seed files to replay from --seed-dir")
     parser.add_argument("--delay", type=float, default=0.25)
     parser.add_argument("--timeout", type=float, default=2.0)
-    parser.add_argument("--rng-seed", type=int, default=1)
     parser.add_argument("--stop-on-timeout", action="store_true")
     parser.add_argument("--stop-on-reset", action="store_true")
     parser.add_argument("--health-probe-note", required=True, help="approved health probes to run around this campaign")
@@ -314,7 +261,6 @@ def main() -> int:
     responses_dir.mkdir(exist_ok=True)
 
     seeds = load_seeds(args.seed_dir)
-    rng = random.Random(args.rng_seed)
     run_manifest = {
         "campaign_manifest": str(args.campaign_manifest) if args.campaign_manifest else None,
         "lab_mode": args.lab_mode,
@@ -326,9 +272,9 @@ def main() -> int:
         "cases": args.cases,
         "delay": args.delay,
         "timeout": args.timeout,
-        "rng_seed": args.rng_seed,
         "health_probe_note": args.health_probe_note,
         "stop_condition_note": args.stop_condition_note,
+        "mode": "seed_replay",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }
     (args.out_dir / "run_manifest.json").write_text(json.dumps(run_manifest, indent=2, sort_keys=True) + "\n")
@@ -348,9 +294,7 @@ def main() -> int:
     if not baseline_statuses:
         raise SystemExit("baseline seed run produced no statuses")
 
-    for idx in range(args.cases):
-        seed_name, seed = rng.choice(seeds)
-        payload, mutation = mutate(seed, rng)
+    for idx, (seed_name, payload) in enumerate(seeds[: args.cases]):
         case_id = f"{idx:06d}"
         case_path = cases_dir / f"{case_id}.bin"
         case_path.write_bytes(payload)
@@ -368,7 +312,7 @@ def main() -> int:
             "elapsed": round(elapsed, 6),
             "case_path": str(case_path),
             "response_path": str(response_path),
-            "mutation": mutation,
+            "replay_source": seed_name,
         }
         record.update(classify(response))
         write_jsonl(results_path, record)
