@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conservative live-device baseline/replay executor for TCP/UDP protocols.
+"""Profile-gated live-device baseline/replay executor for TCP/UDP protocols.
 
 This is not a fuzzer. It replays seed files at low rate after the skill
 preflight has approved a live Cisco campaign, or in explicit lab mode.
@@ -20,7 +20,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from campaign_preflight import get_path, validate_manifest
+from campaign_preflight import get_live_profile, get_path, validate_manifest
 
 
 def now() -> float:
@@ -141,9 +141,20 @@ def validate_live_manifest(manifest_path: Path, args: argparse.Namespace) -> dic
     if not isinstance(allowed_ports, list) or not any(allowed_port_matches(entry, args.proto, args.port) for entry in allowed_ports):
         raise SystemExit(f"{args.proto}/{args.port} is not listed in manifest device.allowed_ports_protocols")
 
-    max_cases = get_path(manifest_obj, "live_safety.max_first_contact_cases")
-    if not isinstance(max_cases, (int, float)) or args.cases > int(max_cases):
-        raise SystemExit(f"--cases {args.cases} exceeds manifest live_safety.max_first_contact_cases {max_cases}")
+    live_profile = get_live_profile(manifest_obj)
+    if live_profile == "destructive_lab":
+        budget = get_path(manifest_obj, "destructive_lab.campaign_budget")
+        if not isinstance(budget, dict):
+            raise SystemExit("destructive_lab.campaign_budget must be a JSON object")
+        max_cases = budget.get("max_cases")
+        if isinstance(max_cases, bool) or not isinstance(max_cases, (int, float)) or int(max_cases) < 1:
+            raise SystemExit("destructive_lab.campaign_budget.max_cases must be > 0 for this case-counted live run")
+        if args.cases > int(max_cases):
+            raise SystemExit(f"--cases {args.cases} exceeds destructive_lab.campaign_budget.max_cases {max_cases}")
+    else:
+        max_cases = get_path(manifest_obj, "live_safety.max_first_contact_cases")
+        if not isinstance(max_cases, (int, float)) or args.cases > int(max_cases):
+            raise SystemExit(f"--cases {args.cases} exceeds manifest live_safety.max_first_contact_cases {max_cases}")
 
     manifest_baseline = Path(str(get_path(manifest_obj, "live_safety.baseline_seed_dir")))
     if resolve_existing(manifest_baseline) != resolve_existing(args.baseline_seed_dir):
@@ -213,7 +224,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-extended-campaign",
         action="store_true",
-        help="allow more than 10 cases; only for explicitly approved lab campaigns",
+        help="with --lab-mode, allow more than 10 cases; cisco_live campaigns use the manifest live profile budget",
     )
     parser.add_argument("--target-host", required=True)
     parser.add_argument("--port", required=True, type=int)
@@ -229,12 +240,14 @@ def main() -> int:
     parser.add_argument("--health-probe-note", required=True, help="approved health probes to run around this campaign")
     parser.add_argument("--stop-condition-note", required=True, help="approved campaign stop conditions")
     args = parser.parse_args()
+    manifest_obj: dict[str, object] | None = None
+    live_profile = "lab_mode"
 
     if args.cases < 1:
         raise SystemExit("--cases must be at least 1")
-    if args.cases > 10 and not args.allow_extended_campaign:
-        raise SystemExit("--cases > 10 requires --allow-extended-campaign")
     if args.lab_mode:
+        if args.cases > 10 and not args.allow_extended_campaign:
+            raise SystemExit("--cases > 10 requires --allow-extended-campaign in --lab-mode")
         if not args.allow_lab_network and not host_is_loopback(args.target_host):
             raise SystemExit("--lab-mode without --allow-lab-network only permits loopback targets")
         if args.allow_lab_network and not host_is_private_or_loopback(args.target_host):
@@ -243,16 +256,18 @@ def main() -> int:
         if not args.campaign_manifest:
             raise SystemExit("--campaign-manifest is required unless --lab-mode is set")
         manifest_obj = validate_live_manifest(args.campaign_manifest, args)
-        authorization = manifest_obj.get("authorization", {})
-        required_auth = [
-            "user_authorized_campaign",
-            "no_state_changing_ops_without_explicit_approval",
-            "no_shell_without_explicit_approval",
-            "no_debugger_without_explicit_approval",
-        ]
-        missing_auth = [name for name in required_auth if authorization.get(name) is not True]
-        if missing_auth:
-            raise SystemExit(f"campaign manifest authorization is incomplete: {', '.join(missing_auth)}")
+        live_profile = get_live_profile(manifest_obj)
+        if live_profile == "production_conservative":
+            authorization = manifest_obj.get("authorization", {})
+            required_auth = [
+                "user_authorized_campaign",
+                "no_state_changing_ops_without_explicit_approval",
+                "no_shell_without_explicit_approval",
+                "no_debugger_without_explicit_approval",
+            ]
+            missing_auth = [name for name in required_auth if authorization.get(name) is not True]
+            if missing_auth:
+                raise SystemExit(f"campaign manifest authorization is incomplete: {', '.join(missing_auth)}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     cases_dir = args.out_dir / "cases"
@@ -264,6 +279,7 @@ def main() -> int:
     run_manifest = {
         "campaign_manifest": str(args.campaign_manifest) if args.campaign_manifest else None,
         "lab_mode": args.lab_mode,
+        "live_profile": live_profile,
         "target_host": args.target_host,
         "port": args.port,
         "proto": args.proto,
@@ -319,21 +335,26 @@ def main() -> int:
 
         anomaly = False
         reason = ""
+        hard_stop = False
         if status not in baseline_statuses:
             anomaly = True
             reason = "new_status_class"
         if args.stop_on_timeout and "timeout" in status:
             anomaly = True
             reason = reason or "timeout"
+            hard_stop = True
         if args.stop_on_reset and "reset" in status:
             anomaly = True
             reason = reason or "reset"
+            hard_stop = True
 
         if anomaly:
             record["anomaly_reason"] = reason
             write_jsonl(anomalies_path, record)
-            print(f"stopping on anomaly case={case_id} reason={reason} status={status}", flush=True)
-            return 2
+            if hard_stop or live_profile != "destructive_lab":
+                print(f"stopping on anomaly case={case_id} reason={reason} status={status}", flush=True)
+                return 2
+            print(f"recorded anomaly case={case_id} reason={reason} status={status}; continuing in destructive_lab", flush=True)
 
         print(f"{case_id} {status} len={len(response)} elapsed={elapsed:.3f}s", flush=True)
         time.sleep(args.delay)

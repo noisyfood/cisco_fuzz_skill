@@ -21,6 +21,12 @@ Save this command's stdout, stderr, and exit code in `preflight.log`, and add th
 
 If this command fails, stop. Do not start inventory, fuzzing, shell access, debugger attachment, or target traffic.
 
+For `cisco_live`, set `live_profile` before preflight:
+
+- `production_conservative`: read-only or non-destructive first contact. Requires recovery, shell/debug policy, maintenance details, and conservative acknowledgements.
+- `lab_minimal_one_shot`: scoped lab traffic with a small first-contact budget. Useful when the device is a lab target but destructive actions are not yet authorized.
+- `destructive_lab`: user-authorized lab device where large-scale fuzzing, configuration changes, shell/debugger actions, reload/service disruption, and destructive replay may be allowed. This profile replaces conservative recovery blockers with explicit action allowlists, campaign budget, required observers, evidence capture, stop rules, and crash attribution readiness.
+
 Required:
 
 - Device target: IP/hostname, reachable interfaces/VRF, allowed ports/protocols, credentials if authenticated testing is allowed, and an explicit safety scope.
@@ -47,6 +53,7 @@ Use layered fuzzing. Every campaign must define this design record before code o
 - Feedback: keep inputs only when they add coverage/state/response novelty or improve reachability.
 - Objective: crash, sanitizer finding, signal, hang, device traceback, process restart, new core, or confirmed health regression.
 - Reducer: minimize first by syntax/protocol units, then by bytes.
+- Live profile: for real devices, choose whether the campaign is conservative, lab one-shot, or destructive lab before any traffic. In `destructive_lab`, runtime evidence can outrank additional static confirmation once crash attribution and observers are ready.
 
 - For text or tagged formats, add a dictionary/token layer early. Include syntax tokens, magic values, boundary integers, command keywords, protocol field names, and recovered constants from IDA/Ghidra.
 - For CLI tools with security-relevant options, fuzz only a bounded argument profile. Keep required reachability flags fixed and mutate a small allowlist of optional flags; never pass arbitrary generated shell arguments.
@@ -70,6 +77,8 @@ Before building or running a campaign fuzzer, apply these gates:
 - Coverage/reachability gate: read [references/coverage_and_reachability.md](references/coverage_and_reachability.md), then define whether progress is measured by local coverage, LibAFL observer state, QEMU/Frida evidence, or live response/health deltas.
 - Obstacle gate: read [references/fuzzing_obstacles.md](references/fuzzing_obstacles.md), then choose seed improvement, token help, field fixups, environment setup, or a documented local-only patch. Do not patch live devices or treat patched-only crashes as confirmed production bugs.
 - Shared-library gate: for extracted `.so` targets, read [references/shared_library_harness.md](references/shared_library_harness.md) and record ABI, loader, dependency root, candidate functions, state reset, and isolation strategy before fuzzing.
+- Crash attribution gate: for aggressive live testing, read [references/crash_attribution.md](references/crash_attribution.md) and record the controlled fields, parser path, suspected sink, fault oracle, symbolization plan, and replay plan.
+- Destructive lab gate: before large-scale live testing or destructive actions, read [references/destructive_lab.md](references/destructive_lab.md), set `live_profile=destructive_lab`, and fill the action allowlist, observers, evidence capture, stop rules, and campaign budget.
 
 ## Training-To-Cisco Bridge
 
@@ -81,7 +90,8 @@ device work keeps those mechanics but changes the observer and safety model:
   timing, service liveness, process/core deltas, logs, and recovery evidence as
   feedback.
 - Local parser crashes can be replayed repeatedly; live reload/DoS triggers
-  must be isolated into explicit one-shot reproducers with recovery planning.
+  are one-shot in conservative profiles but can become budgeted destructive
+  lab evidence when the manifest authorizes repeated crash/reload replay.
 - File-format dictionaries become protocol dictionaries: magic values, TLV
   types, length sentinels, method IDs, transaction IDs, CLI/YANG constants, and
   IDA-recovered string or enum values.
@@ -106,11 +116,11 @@ Choose the fuzzer by target shape:
 - Binary-only offline parser: use LibAFL QEMU/Frida in an offline lab after preflight validates toolchain, architecture, loader, libraries, and persistent-loop evidence. AFL++ QEMU/QASAN remains auxiliary replay/triage tooling.
 - Live Cisco target: if fuzzing is authorized, build a Rust LibAFL or pylibafl protocol driver with low-rate scheduling, response/health feedback, and strict stop conditions. `scripts/live_probe_executor.py` is only a gated baseline/seed-replay helper, not the campaign fuzzer.
 - Protocol-specific live drivers and replay helpers must call `scripts/live_driver_gate.py` before traffic, then collect the same evidence and stop on the same health conditions.
-- Known or suspected high-impact live reproducers must be separated from normal mutation queues. Default to dry-run, baseline, or non-destructive boundary probes; send a reload/DoS trigger only through an explicit armed one-shot option and stop immediately for health collection.
+- Known or suspected high-impact live reproducers must be separated from normal mutation queues. In `production_conservative` and `lab_minimal_one_shot`, default to dry-run, baseline, or non-destructive boundary probes; send a reload/DoS trigger only through an explicit armed one-shot option and stop immediately for health collection. In `destructive_lab`, known crash/reload triggers may be part of the campaign queue when the action is allowed by the manifest and the observer/evidence chain remains intact.
 
 Do not make instrumentation a hard dependency for Cisco device work. Instrumentation is a training/offline acceleration technique, not the live-device assumption.
 
-Read [references/fuzzer_usage.md](references/fuzzer_usage.md), [references/libafl_workflow.md](references/libafl_workflow.md), [references/harness_design.md](references/harness_design.md), [references/dictionary_strategy.md](references/dictionary_strategy.md), [references/coverage_and_reachability.md](references/coverage_and_reachability.md), [references/fuzzing_obstacles.md](references/fuzzing_obstacles.md), [references/shared_library_harness.md](references/shared_library_harness.md), and [references/script_inventory.md](references/script_inventory.md) before running or adapting a fuzzer.
+Read [references/fuzzer_usage.md](references/fuzzer_usage.md), [references/libafl_workflow.md](references/libafl_workflow.md), [references/harness_design.md](references/harness_design.md), [references/dictionary_strategy.md](references/dictionary_strategy.md), [references/coverage_and_reachability.md](references/coverage_and_reachability.md), [references/fuzzing_obstacles.md](references/fuzzing_obstacles.md), [references/shared_library_harness.md](references/shared_library_harness.md), [references/crash_attribution.md](references/crash_attribution.md), [references/destructive_lab.md](references/destructive_lab.md), and [references/script_inventory.md](references/script_inventory.md) before running or adapting a fuzzer.
 
 ## IDA Input-Surface Discovery
 
@@ -136,17 +146,18 @@ Minimum output:
 6. For local training, use the same manifest, seed, fuzzer, crash triage, and report flow on a local target before applying the workflow to Cisco.
 7. Build seeds from real messages, valid files, protocol notes, YANG schemas, HTTP routes, CLI output, or prior proof-of-concept traffic. Add dictionary tokens when syntax or magic values matter.
 8. Capture a baseline: local target version or live-device liveness, response class, process list, filtered logs, and core/crash directories. For live protocols, prove parser reachability with a safe request before any malformed field or length sweep.
-9. Fuzz with a bounded budget. For live devices, fuzz at low rate and run health probes after each case or small batch.
-10. On crash/anomaly, stop immediately. Save input, response, timing, health delta, logs, and core/crash listings. Treat a network timeout as a lead until a reload, process restart, traceback, or new core/crash artifact is collected.
+9. Fuzz with a bounded budget. For live devices, use the selected `live_profile`: conservative and one-shot profiles run low-rate health checks after each case or small batch; `destructive_lab` may run large-scale mutation, configuration changes, and destructive replay within the manifest budget once crash attribution and required observers are ready.
+10. On crash/anomaly, save input, response, timing, health delta, logs, and core/crash listings. In conservative and one-shot profiles, stop and triage before continuing. In `destructive_lab`, treat reloads, watchdogs, process restarts, and new core/crashinfo as evidence sources; continue while observers remain valid, budget remains, and no `destructive_lab.stop_when` rule fires.
 11. Replay the case at least three times. If reproducible, minimize the input.
 12. Map the crash: ASan/GDB/core locally, or PC/backtrace/core/logs on Cisco if allowed. Prefer `bt 80`, `info registers`, and `thread apply all bt` when practical. Connect input fields to parser paths.
 13. Generate a vulnerability report using [references/reporting.md](references/reporting.md) and `scripts/generate_vulnerability_report.py`. Confirm only with replayable evidence; otherwise mark rejected, blocked, or needs-permission.
 
-For a known live reload reproducer, replace broad replay with the approved
-reproducer plan: baseline, one explicitly armed trigger, recovery, evidence
-collection, and protocol-field minimization. Do not loop a reload trigger to
-satisfy the three-replay rule unless the user separately authorizes repeated
-service impact.
+For a known live reload reproducer in conservative or one-shot profiles, replace
+broad replay with the approved reproducer plan: baseline, one explicitly armed
+trigger, recovery, evidence collection, and protocol-field minimization. In
+`destructive_lab`, repeated reload or crash replay is allowed only when listed
+in `destructive_lab.allowed_destructive_actions` and bounded by
+`destructive_lab.campaign_budget`.
 
 ## Multi-Agent Pattern
 
@@ -157,17 +168,18 @@ Use subagents when the user has allowed multi-agent work and tasks can run indep
 - Shared-library harness agent: plans ABI-safe wrappers, loader environment, state reset, and fork/QEMU/Frida isolation for one selected `.so`.
 - Crash agent: replays, minimizes, debugs, and maps crashes.
 - Review agent: independently reruns the reproducer and checks the report evidence.
-- Cisco live agent: manages real-device safety gates, health checks, and non-destructive traffic.
+- Cisco live agent: manages real-device profile gates, health checks, destructive-action allowlists, and evidence capture.
+- Destructive lab agent: when `live_profile=destructive_lab`, prioritizes runtime experiments after attribution readiness, stops low-value static branches, and tracks budget/observer loss.
 
 ## Safety Defaults
 
-- Do not modify device configuration, users, files, services, or package state without explicit approval.
-- Do not fuzz state-changing HTTP methods, RESTCONF/NETCONF operations, CLI config commands, file uploads, reload/action RPCs, or destructive diagnostics unless the user explicitly authorizes each class.
-- Do not use high concurrency until a stable baseline and rollback/recovery procedure exist.
-- Do not run `get_shell.py`, `gdbserver`, `gcore`, service restarts, reloads, or destructive cleanup without explicit approval.
-- Treat DoS, reload, watchdog, CPUHOG, process restart, and persistent service degradation as stop conditions.
-- For pre-auth live services, keep authentication state, device configuration, and unrelated protocols unchanged. A protocol driver may open a socket and send scoped test frames only after the live gate passes.
-- For DoS/reload reproducers, require an explicit command-line arm flag, a case count of one for the trigger, and an immediate post-trigger health/recovery phase.
+- Safety is profile-aware. Do not apply conservative production defaults to an explicitly authorized destructive lab campaign.
+- In `production_conservative`, do not modify device configuration, users, files, services, package state, authentication state, or unrelated protocols. Do not run `get_shell.py`, `gdbserver`, `gcore`, service restarts, reloads, or destructive cleanup without separate approval. Treat DoS, reload, watchdog, CPUHOG, process restart, and persistent service degradation as stop conditions.
+- In `lab_minimal_one_shot`, send only scoped test frames through the live gate, keep case counts at or below the manifest first-contact limit, and stop on anomaly for triage.
+- In `destructive_lab`, configuration changes, state-changing HTTP/RESTCONF/NETCONF/CLI/RPC operations, file uploads, shell commands, debugger attachment, service restart, reload, crash replay, and large-scale fuzzing are allowed only when the matching action class is listed in `destructive_lab.allowed_destructive_actions`.
+- In `destructive_lab`, treat DoS, reload, watchdog, CPUHOG, process restart, and new core/crashinfo as evidence sources rather than automatic stop conditions. Stop when the campaign budget is exhausted, required observers are lost, non-target impact appears, attribution can no longer be updated, or a `destructive_lab.stop_when` rule fires.
+- For pre-auth live services, a protocol driver may open a socket and send scoped test frames only after the live gate passes. In destructive lab mode, the same driver may send malformed or disruptive frames within the action allowlist and budget.
+- For DoS/reload reproducers outside `destructive_lab`, require an explicit command-line arm flag, a case count of one for the trigger, and an immediate post-trigger health/recovery phase.
 - Keep every campaign reproducible: save seeds, generated cases, exact command lines, timestamps, and health snapshots.
 - Keep `preflight.log` and `commands.log` in the campaign directory. Record each preflight, build, fuzzer, replay, debugger, minimizer, and report-generation command with exit code.
 
@@ -187,6 +199,7 @@ Each campaign should create:
 - `crashes/`
 - `minimized/`
 - `root_cause.md`
+- `reports/crash_attribution.md`
 - `reports/coverage_or_reachability.md`
 - `reports/gdb_or_crash_trace.txt`
 - `reports/vulnerability_report.md`

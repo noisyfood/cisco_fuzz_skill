@@ -250,8 +250,13 @@ python3 scripts/live_driver_gate.py \
   --proto tcp \
   --seed-dir campaigns/<name>/seeds \
   --baseline-seed-dir campaigns/<name>/baseline \
-  --cases 5
+  --cases 5 \
+  --mode sweep
 ```
+
+For `live_profile=destructive_lab`, add one `--destructive-action <name>` flag
+for each destructive class the driver may perform. The gate rejects actions not
+listed in `destructive_lab.allowed_destructive_actions`.
 
 For simple TCP/UDP request/response baseline or seed replay, use the bundled executor:
 
@@ -320,8 +325,10 @@ python3 targets/<protocol>/<driver>.py \
 ```
 
 The driver should save case bytes, response bytes, status class, elapsed time,
-health snapshots, and a decision log. If the trigger causes a timeout and later
-liveness loss, stop and collect recovery evidence; do not continue mutation.
+health snapshots, and a decision log. In conservative or one-shot profiles, if
+the trigger causes a timeout and later liveness loss, stop and collect recovery
+evidence. In `destructive_lab`, record the evidence and continue only if the
+required observers remain available and the manifest budget/stop rules allow it.
 
 For a TLV protocol, minimization should operate on whole protocol units first:
 reduce to one message, one TLV, one type, one declared length, and then byte
@@ -340,6 +347,10 @@ The live path records:
 - response prefix hash
 - elapsed time
 
-An anomaly is only a triage lead. Stop, collect health evidence, replay, minimize, and map the root cause before making any vulnerability claim.
+An anomaly is only a triage lead. Collect health evidence, replay, minimize, and map the root cause before making any vulnerability claim.
 
-Stop immediately on reload, watchdog, CPUHOG, traceback, signal, SegV, memory alerts, target PID changes, new core/crashinfo, liveness failure, or management-plane instability.
+In `production_conservative` and `lab_minimal_one_shot`, stop immediately on
+reload, watchdog, CPUHOG, traceback, signal, SegV, memory alerts, target PID
+changes, new core/crashinfo, liveness failure, or management-plane instability.
+In `destructive_lab`, treat those events as evidence and continue only while the
+observer chain, attribution notes, and campaign budget remain valid.

@@ -2,7 +2,15 @@
 
 ## First Response
 
-When a crash-like anomaly appears, stop fuzzing and preserve evidence. Include the coverage or reachability signal defined in [coverage_and_reachability.md](coverage_and_reachability.md), because a timeout or crash artifact without reachability context is usually only a lead.
+When a crash-like anomaly appears, preserve evidence immediately. Include the coverage or reachability signal defined in [coverage_and_reachability.md](coverage_and_reachability.md), because a timeout or crash artifact without reachability context is usually only a lead.
+
+For `production_conservative` and `lab_minimal_one_shot`, stop fuzzing until the
+case has been replayed and classified.
+
+For `destructive_lab`, crash-like events are evidence sources. Continue within
+the manifest budget only when required observers still work, the event can still
+be tied to controlled input fields, and no `destructive_lab.stop_when` rule has
+fired.
 
 Save:
 
@@ -15,7 +23,9 @@ Save:
 - Filtered device logs.
 - Core/crash directory listings.
 
-Do not continue fuzzing until the case has been replayed and classified.
+Do not continue without updating the campaign's crash attribution notes. If the
+agent can no longer explain new events, stop and restore observability before
+more traffic.
 
 ## Local Sanitizer Replay
 
@@ -79,6 +89,12 @@ If the device is unavailable after the trigger and recovery evidence is not yet
 collected, classify the case as `crash-like availability anomaly` rather than
 `confirmed reload`.
 
+In `destructive_lab`, a reload, watchdog, CPUHOG, process restart, or new
+core/crashinfo does not automatically end the campaign. It increments the
+campaign evidence and any configured reload/config-change budget. Stop only when
+the manifest says to stop, the device cannot be recovered enough to preserve
+evidence, or attribution is no longer possible.
+
 ## Reproduction
 
 Replay the exact case at least three times:
@@ -87,12 +103,17 @@ Replay the exact case at least three times:
 - Once after a fresh baseline health check.
 - Once with the minimal protocol setup needed to reach the parser state.
 
-If replay is not stable, keep it as an anomaly and continue static analysis before any larger fuzzing.
+If replay is not stable in conservative or one-shot profiles, keep it as an
+anomaly and continue static analysis before any larger fuzzing. In
+`destructive_lab`, unstable replay can still guide the next runtime experiment
+when the controlled fields, parser path, and fault oracle remain plausible.
 
-For live DoS/reload reproducers, do not repeat the trigger automatically. One
-approved trigger plus strong reload evidence can be enough for confirmation;
-additional replays require separate user approval because they intentionally
-repeat service impact.
+For live DoS/reload reproducers outside `destructive_lab`, do not repeat the
+trigger automatically. One approved trigger plus strong reload evidence can be
+enough for confirmation; additional replays require separate user approval
+because they intentionally repeat service impact. In `destructive_lab`, repeated
+triggers follow `destructive_lab.allowed_destructive_actions` and
+`destructive_lab.campaign_budget`.
 
 ## Minimization
 

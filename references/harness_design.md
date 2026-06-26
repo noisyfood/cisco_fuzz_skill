@@ -71,7 +71,8 @@ For live Cisco protocol drivers:
 
 - Call the manifest/live gate before opening a socket.
 - Provide `baseline`, bounded `sweep`, and one-case `oneshot` modes.
-- Stop on anomaly and collect health evidence before continuing.
+- In conservative and one-shot profiles, stop on anomaly and collect health evidence before continuing.
+- In `destructive_lab`, record anomalies and continue while the observer chain, attribution notes, and campaign budget remain valid.
 - Treat response novelty as guidance, not vulnerability proof.
 
 ## Manual Smoke Tests
@@ -84,9 +85,11 @@ Before a fuzzing run, execute and save results for:
 - Timeout seed if applicable: timeout is classified separately from crash.
 - Local deliberate-fault test when practical: proves crash capture works.
 
-For Cisco live targets, replace deliberate faults with non-destructive baseline
-and liveness probes. Do not intentionally trigger reload or DoS behavior unless
-the manifest and user authorization explicitly allow a one-shot reproducer.
+For Cisco live targets in conservative and one-shot profiles, replace deliberate
+faults with non-destructive baseline and liveness probes. In `destructive_lab`,
+intentional reload, DoS, service restart, config mutation, or debugger/shell
+actions may be part of the smoke plan when the exact action class is allowed in
+the manifest and evidence capture is ready.
 
 ## Failure Classification
 

@@ -12,6 +12,7 @@ from typing import Any
 
 VALID_TYPES = {"local_training", "cisco_offline", "cisco_live"}
 OFFLINE_TARGET_KINDS = {"binary_only", "source_harness", "shared_library_harness", "analysis_only"}
+LIVE_PROFILES = {"production_conservative", "lab_minimal_one_shot", "destructive_lab"}
 
 
 COMMON_REQUIRED = [
@@ -110,6 +111,41 @@ CISCO_LIVE_REQUIRED = [
     "authorization.no_debugger_without_explicit_approval",
 ]
 
+LAB_MINIMAL_LIVE_REQUIRED = [
+    "device.ip_or_hostname",
+    "device.allowed_ports_protocols",
+    "device.safety_scope",
+    "live_safety.baseline_seed_dir",
+    "live_safety.fuzz_seed_dir",
+    "live_safety.health_probe_plan",
+    "live_safety.stop_conditions",
+    "live_safety.max_first_contact_cases",
+    "authorization.user_authorized_campaign",
+]
+
+DESTRUCTIVE_LAB_REQUIRED = [
+    "device.ip_or_hostname",
+    "device.allowed_ports_protocols",
+    "device.safety_scope",
+    "live_safety.baseline_seed_dir",
+    "live_safety.fuzz_seed_dir",
+    "destructive_lab.lab_device_authorized",
+    "destructive_lab.destructive_actions_authorized",
+    "destructive_lab.allowed_destructive_actions",
+    "destructive_lab.campaign_budget",
+    "destructive_lab.observer_requirements",
+    "destructive_lab.evidence_capture",
+    "destructive_lab.stop_when",
+    "crash_attribution.attribution_ready",
+    "crash_attribution.input_to_parser_path",
+    "crash_attribution.controlled_fields",
+    "crash_attribution.suspected_sink",
+    "crash_attribution.fault_oracle",
+    "crash_attribution.symbolization_plan",
+    "crash_attribution.replay_plan",
+    "authorization.user_authorized_campaign",
+]
+
 
 def get_path(obj: dict[str, Any], dotted: str) -> Any:
     cur: Any = obj
@@ -190,6 +226,63 @@ def validate_required_env_object(manifest: dict[str, Any]) -> list[str]:
     if not isinstance(value, dict):
         return ["offline_execution.required_env must be a JSON object; use {} when no extra env is required"]
     return []
+
+
+def get_live_profile(manifest: dict[str, Any]) -> str:
+    profile = str(get_path(manifest, "live_profile") or "production_conservative").strip().lower()
+    return profile or "production_conservative"
+
+
+def validate_live_profile_name(manifest: dict[str, Any]) -> list[str]:
+    profile = get_live_profile(manifest)
+    if profile not in LIVE_PROFILES:
+        return ["live_profile must be production_conservative, lab_minimal_one_shot, or destructive_lab"]
+    return []
+
+
+def validate_campaign_budget(manifest: dict[str, Any]) -> list[str]:
+    budget = get_path(manifest, "destructive_lab.campaign_budget")
+    if not isinstance(budget, dict):
+        return ["destructive_lab.campaign_budget must be a JSON object"]
+    errors: list[str] = []
+    for field in ("max_cases", "max_duration_minutes", "max_reloads", "max_config_changes"):
+        value = budget.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            errors.append(f"destructive_lab.campaign_budget.{field} must be a non-negative number")
+    if not errors and budget.get("max_cases", 0) <= 0 and budget.get("max_duration_minutes", 0) <= 0:
+        errors.append("destructive_lab.campaign_budget must set max_cases or max_duration_minutes")
+    return errors
+
+
+def validate_nonempty_string_list(manifest: dict[str, Any], field: str) -> list[str]:
+    value = get_path(manifest, field)
+    if not isinstance(value, list) or not value:
+        return [f"{field} must be a non-empty list"]
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        return [f"{field} entries must be non-empty strings"]
+    return []
+
+
+def validate_lab_minimal_live(manifest: dict[str, Any]) -> list[str]:
+    errors = validate_required(manifest, LAB_MINIMAL_LIVE_REQUIRED)
+    first_contact = get_path(manifest, "live_safety.max_first_contact_cases")
+    if isinstance(first_contact, (int, float)) and first_contact > 10:
+        errors.append("live_safety.max_first_contact_cases must be <= 10 for lab_minimal_one_shot")
+    return errors
+
+
+def validate_destructive_lab(manifest: dict[str, Any]) -> list[str]:
+    errors = validate_required(manifest, DESTRUCTIVE_LAB_REQUIRED)
+    errors.extend(validate_campaign_budget(manifest))
+    for field in (
+        "destructive_lab.allowed_destructive_actions",
+        "destructive_lab.observer_requirements",
+        "destructive_lab.evidence_capture",
+        "destructive_lab.stop_when",
+        "crash_attribution.controlled_fields",
+    ):
+        errors.extend(validate_nonempty_string_list(manifest, field))
+    return errors
 
 
 def validate_binary_only(manifest: dict[str, Any]) -> list[str]:
@@ -282,10 +375,17 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
             missing.extend(validate_shared_library_harness(manifest))
     elif campaign_type == "cisco_live":
         missing.extend(validate_fuzzer_mode(manifest))
-        missing.extend(validate_required(manifest, CISCO_LIVE_REQUIRED))
-        first_contact = get_path(manifest, "live_safety.max_first_contact_cases")
-        if isinstance(first_contact, (int, float)) and first_contact > 10:
-            missing.append("live_safety.max_first_contact_cases must be <= 10 for first contact")
+        missing.extend(validate_live_profile_name(manifest))
+        profile = get_live_profile(manifest)
+        if profile == "production_conservative":
+            missing.extend(validate_required(manifest, CISCO_LIVE_REQUIRED))
+            first_contact = get_path(manifest, "live_safety.max_first_contact_cases")
+            if isinstance(first_contact, (int, float)) and first_contact > 10:
+                missing.append("live_safety.max_first_contact_cases must be <= 10 for first contact")
+        elif profile == "lab_minimal_one_shot":
+            missing.extend(validate_lab_minimal_live(manifest))
+        elif profile == "destructive_lab":
+            missing.extend(validate_destructive_lab(manifest))
 
     return missing
 

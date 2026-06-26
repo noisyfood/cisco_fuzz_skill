@@ -1,5 +1,6 @@
 {
   "campaign_type": "",
+  "live_profile": "destructive_lab",
   "output": {
     "campaign_dir": ""
   },
@@ -101,6 +102,29 @@
     "health_probe_plan": [],
     "stop_conditions": [],
     "max_first_contact_cases": 0
+  },
+  "destructive_lab": {
+    "lab_device_authorized": false,
+    "destructive_actions_authorized": false,
+    "allowed_destructive_actions": [],
+    "campaign_budget": {
+      "max_cases": 0,
+      "max_duration_minutes": 0,
+      "max_reloads": 0,
+      "max_config_changes": 0
+    },
+    "observer_requirements": [],
+    "evidence_capture": [],
+    "stop_when": []
+  },
+  "crash_attribution": {
+    "attribution_ready": false,
+    "input_to_parser_path": "",
+    "controlled_fields": [],
+    "suspected_sink": "",
+    "fault_oracle": "",
+    "symbolization_plan": "",
+    "replay_plan": ""
   },
   "authorization": {
     "user_authorized_campaign": false,
