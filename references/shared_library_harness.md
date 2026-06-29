@@ -8,39 +8,29 @@ The detailed reverse-engineering process for selecting `.so` candidates is a
 separate skill section. This document only defines the gate and harness shape
 needed before fuzzing starts.
 
-## Manifest Gate
+## When To Analyze A `.so`
 
-For Cisco offline shared-library work, set:
+Start shared-library analysis when threat-model-based attack-surface inventory
+shows that attacker-controlled data is handled by an extracted `.so`. Do not
+choose a library only because it has interesting strings or loads cleanly.
 
-```json
-{
-  "campaign_type": "cisco_offline",
-  "offline_execution": {
-    "target_kind": "shared_library_harness"
-  }
-}
-```
+Before fuzzing, record in `campaign_manifest.md`:
 
-The preflight requires:
+- Which reachable attack surface feeds the library.
+- Library path, dependency root, architecture, loader, and environment.
+- Candidate exported or internal functions and the caller chain from the attack
+  surface.
+- Input constraints: buffer shape, file format, protocol framing, length/count
+  fields, state prerequisites, and validation barriers.
+- Calling convention, ABI, ownership rules, initialization sequence, and state
+  reset plan.
+- Real seed source when available: captured traffic, WebUI request, CLI/config
+  artifact, uploaded file, protocol transcript, or minimized proof input.
 
-- `shared_library.library_path`: extracted `.so` file.
-- `shared_library.candidate_functions`: exported symbols, internal addresses,
-  wrappers, or parser entry candidates.
-- `shared_library.input_format`: bytes, file buffer, TLV, JSON/XML, CLI token
-  stream, protocol message, or custom struct.
-- `shared_library.harness_plan`: how the harness calls the library.
-- `shared_library.harness_execution`: native, QEMU user-mode, Frida/QEMU hook,
-  source-rebuilt wrapper, forkserver, or analysis-only blocked state.
-- `shared_library.abi_notes`: architecture, calling convention, struct layout,
-  ownership rules, and required initialization.
-- `shared_library.state_reset_plan`: how each iteration avoids persistent global
-  state, leaked allocations, stale handles, or non-determinism.
-- `shared_library.seed_dir`: at least one non-empty seed.
-- `offline_execution.architecture`, `loader`, `library_root`, `required_env`,
-  and `license_or_authorization`. `offline_execution.required_env` must be present as a JSON object; use `{}` when no extra environment variables are required.
-
-If `qemu_helper` or `sanitizer_helper` is set, its architecture must match
-`offline_execution.architecture`.
+Offline crashes in a `.so` harness are candidate findings. Promote them to
+confirmed vulnerabilities only after the minimized case or equivalent protocol
+sequence reproduces through the real-device attack surface and produces device
+evidence.
 
 ## Design Record
 
@@ -54,7 +44,7 @@ Before writing code, record:
 - Required process initialization, environment variables, config files, and
   library search path.
 - State reset plan and isolation mode.
-- Instrumentation mode: harness-only, rebuilt source, AFL-compatible forkserver,
+- Instrumentation mode: harness-only, rebuilt source, LibAFL forkserver,
   LibAFL QEMU/Frida, sanitizer replay, or none.
 - Dictionary source: strings/xrefs, enum values, magic bytes, TLV types, route
   names, CLI/YANG constants, or real samples.
@@ -87,13 +77,10 @@ targets.
 Instrumentation is allowed in offline `.so` work when it is technically valid:
 
 - Rebuilt harness and wrappers may use ASan/UBSan and coverage.
-- Rebuilt source libraries may use AFL-compatible instrumentation and be driven
-  by Rust LibAFL forkserver.
+- Rebuilt source libraries may use compiler instrumentation and be driven by a
+  LibAFL forkserver.
 - Binary-only libraries may use LibAFL QEMU/Frida coverage or hooks when the
   loader, dependency root, and function boundary are validated.
-- AFL++ compiler wrappers, `afl-qemu-trace`, CMPLOG, and QASAN remain auxiliary
-  tooling. Do not use `afl-fuzz` as the campaign fuzzer.
-
 When only the harness is instrumented, record that coverage does not represent
 library internals. Use it only for harness health, not target reachability.
 

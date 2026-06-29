@@ -17,7 +17,7 @@ def timestamp() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--log", required=True, type=Path, help="commands.log or preflight.log path")
+    parser.add_argument("--log", required=True, type=Path, help="commands.log path")
     parser.add_argument("--cwd", type=Path, default=Path.cwd())
     parser.add_argument("--name", default="")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="command to run, optionally after --")

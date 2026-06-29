@@ -14,8 +14,8 @@ Before fuzzing a parser with recognizable structure, create a dictionary record:
 - Token source for each token group.
 - Expected parser barrier the token should help cross.
 - Maximum input size and whether long tokens will be ignored.
-- Whether tokens are used by LibAFL token mutators, a custom mutator, or an
-  auxiliary AFL-compatible build.
+- Whether tokens are used by LibAFL token mutators, a custom LibAFL mutator, or
+  target-specific field fixups.
 
 Keep dictionaries focused. Start with high-signal tokens rather than dumping
 every string from a binary.
@@ -41,8 +41,7 @@ callers. A global firmware string dump is usually too noisy.
 
 ## Format
 
-Use a dictionary format compatible with LibAFL token loading and AFL-style
-entries:
+Use a dictionary format compatible with LibAFL token loading:
 
 ```text
 # comments are allowed
@@ -54,7 +53,7 @@ max_u16="\xff\xff"
 
 Rules:
 
-- Use raw one-token-per-line entries or named AFL-style entries.
+- Use raw one-token-per-line entries or named entries.
 - Escape quotes and backslashes.
 - Use `\xNN` for non-printable bytes.
 - Deduplicate tokens.

@@ -7,11 +7,13 @@ Use the bundled generator so reports keep the same structure:
 ```bash
 python3 scripts/generate_vulnerability_report.py \
   --report-json report_input.json \
-  --manifest campaign_manifest.json \
+  --manifest campaign_manifest.md \
   --out vulnerability_report.md
 ```
 
-For confirmed reports, the generator requires a campaign manifest with campaign type and output directory. Use `--check-local-evidence` for local training and offline harnesses where evidence files should exist in the workspace.
+For confirmed reports, pass the campaign Markdown manifest used during the run.
+Use `--check-local-evidence` for local training and offline harnesses where
+evidence files should exist in the workspace.
 When crash artifacts are listed as `path, SHA-256 <64 hex>, <N> bytes`, `--check-local-evidence` verifies the hash and size.
 
 The report status controls confirmation semantics. Use a status that starts with `confirmed` only when replayable crash evidence exists. Status values containing `unconfirmed`, `blocked`, `rejected`, or `needs_permission` do not trigger confirmed-report handling.
@@ -51,8 +53,9 @@ The report status controls confirmation semantics. Use a status that starts with
 Confirmed reports need:
 
 - Exact target version/build.
-- Validated `campaign_manifest.json` path and campaign type.
-- `preflight.log` and `commands.log` with command lines and exit codes.
+- `campaign_manifest.md` path, threat model, selected attack surface, and
+  forbidden operations.
+- `commands.log` with command lines and exit codes.
 - `decision_log.md` for confirmed live-device findings.
 - Exact command or network reproducer.
 - Minimal crashing input or protocol transcript.
@@ -70,7 +73,9 @@ For Cisco live-device reports, include:
 - Device health before and after.
 - Core/crashinfo/system-report paths if present.
 - Whether shell/gdbserver/core collection was approved.
-- The live decision log: preflight facts, why each target interaction was allowed, why any DoS/reload trigger was armed, and why the evidence is sufficient or insufficient.
+- The live decision log: threat-model facts, why each target interaction was
+  reachable, why any DoS/reload trigger was run, and why the evidence is
+  sufficient or insufficient.
 
 For Cisco live-device DoS/reload reports, a single explicitly armed trigger can
 substitute for `replay_summary.tsv` only when the report includes strong reload
@@ -83,7 +88,7 @@ If the evidence is only a response anomaly or static suspicion, use status `unco
 
 For blocked reports, include:
 
-- Failed preflight command and exit code.
+- Missing threat-model, reachability, seed, replay, or evidence facts.
 - Missing target/tool/dependency list.
 - Commands intentionally not executed.
 - Next human action required to unblock the campaign.

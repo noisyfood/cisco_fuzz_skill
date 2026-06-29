@@ -11,7 +11,7 @@ Before a campaign, define which signal proves progress:
 
 - Source/local harness: LLVM/gcov coverage, sanitizer coverage, LibAFL coverage
   observer, or module-scoped instrumentation.
-- AFL-instrumented harness: forkserver coverage observed by Rust LibAFL.
+- Forkserver harness: forkserver coverage observed by Rust LibAFL.
 - Binary-only offline harness: LibAFL QEMU/Frida observer, dynamic trace, or
   replay evidence when coverage is not practical.
 - Shared-library harness: library-internal coverage only if the `.so` or binary
@@ -24,7 +24,7 @@ or seed design before fuzzing.
 
 ## Local Coverage Workflow
 
-Use coverage after a short fuzzing or seed-replay run:
+Use coverage after a short fuzzing or replay run:
 
 1. Build a separate coverage binary or harness variant.
 2. Execute the saved corpus, not only one seed.
@@ -80,8 +80,8 @@ When coverage or reachability plateaus:
 - Narrow the harness to the parser instead of application dispatch.
 - Check whether a checksum, signature, environment, license, authentication, or
   config gate blocks the path.
-- For live targets, reduce risk rather than increasing rate; prove state and
-  authorization first.
+- For live targets, improve state setup, field modeling, and observability
+  before increasing rate.
 
 ## Evidence To Save
 

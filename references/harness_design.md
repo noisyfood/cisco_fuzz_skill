@@ -5,8 +5,7 @@ protocol harness. A fuzzer is only as useful as the harness reachability and
 reproducibility it provides.
 
 This reference absorbs general harness-writing practice into the Cisco workflow.
-It is not a generic libFuzzer guide; campaign fuzzers remain `pylibafl` or Rust
-LibAFL unless this skill explicitly says otherwise.
+Campaign fuzzers are generated as target-specific LibAFL projects.
 
 ## Harness Gate
 
@@ -67,12 +66,15 @@ For extracted `.so` libraries:
 - Record ABI, ownership, initialization, dependency root, and state reset.
 - Prefer fork isolation, forkserver, QEMU, or Frida for unstable native code.
 
-For live Cisco protocol drivers:
+For live Cisco execution paths:
 
-- Call the manifest/live gate before opening a socket.
-- Provide `baseline`, bounded `sweep`, and one-case `oneshot` modes.
-- In conservative and one-shot profiles, stop on anomaly and collect health evidence before continuing.
-- In `destructive_lab`, record anomalies and continue while the observer chain, attribution notes, and campaign budget remain valid.
+- Confirm the selected threat model can reach the live surface before opening a
+  socket.
+- Choose execution behavior that fits the selected protocol, target state, and
+  campaign notes; keep mutation bounds, replay behavior, and evidence capture
+  explicit.
+- Record anomalies and continue while the observer chain, attribution notes,
+  and campaign notes remain valid.
 - Treat response novelty as guidance, not vulnerability proof.
 
 ## Manual Smoke Tests
@@ -85,11 +87,9 @@ Before a fuzzing run, execute and save results for:
 - Timeout seed if applicable: timeout is classified separately from crash.
 - Local deliberate-fault test when practical: proves crash capture works.
 
-For Cisco live targets in conservative and one-shot profiles, replace deliberate
-faults with non-destructive baseline and liveness probes. In `destructive_lab`,
-intentional reload, DoS, service restart, config mutation, or debugger/shell
-actions may be part of the smoke plan when the exact action class is allowed in
-the manifest and evidence capture is ready.
+For Cisco live targets, replace local deliberate-fault tests with baseline and
+liveness checks unless the campaign notes explicitly name a disruptive action,
+its observers, and recovery path.
 
 ## Failure Classification
 

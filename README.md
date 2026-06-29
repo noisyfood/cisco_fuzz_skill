@@ -1,6 +1,9 @@
 # IoT Fuzz Skill
 
-This skill is designed for IoT devices such as Cisco IOS XE serials devices vulnerabilities discovery. The skill employ libafl as fuzz toolkit, training on fuzzing101 project and several private Cisco vulnerabilities.
+This skill is designed for IoT devices such as Cisco IOS XE devices. It guides
+threat-model-first attack-surface selection, reverse analysis, dynamic Rust
+LibAFL fuzzer generation, live-device replay, crash triage, and vulnerability
+reporting.
 
 # Install
 
@@ -26,11 +29,12 @@ The installer copies only portable skill files and reusable scaffolds. It does n
 
 # Quick Start
 
-Libafl environment is needed:
+LibAFL and a Rust toolchain are needed:
 
 ```bash
 git clone https://github.com/AFLplusplus/LibAFL
 cargo build --release
 ```
 
-Then follow `LibAFL/bindings/pylibafl` for python bindings. What's more, IDA Pro MCP or other equal tools for reverse are needed.
+IDA Pro MCP, Ghidra, or equivalent reverse-engineering tooling is recommended
+for binary and shared-library target selection.

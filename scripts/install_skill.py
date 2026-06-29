@@ -17,13 +17,12 @@ INCLUDE_PATTERNS = [
     "README.md",
     "LICENSE",
     "references/**",
-    "scripts/*.py",
+    "scripts/generate_vulnerability_report.py",
+    "scripts/ida_surface_scan.py",
+    "scripts/install_skill.py",
+    "scripts/run_logged_command.py",
     "assets/README.md",
-    "assets/campaign_manifest.template.json",
-    "assets/python_pylibafl_bytes_fuzzer/README.md",
-    "assets/python_pylibafl_bytes_fuzzer/*.py",
-    "assets/local_cli_smoke_fuzzer/README.md",
-    "assets/local_cli_smoke_fuzzer/*.py",
+    "assets/campaign_manifest.template.md",
     "assets/rust_libafl_cli_command_fuzzer/Cargo.toml",
     "assets/rust_libafl_cli_command_fuzzer/Cargo.lock",
     "assets/rust_libafl_cli_command_fuzzer/src/**",
@@ -49,7 +48,6 @@ EXCLUDE_PATTERNS = [
     "targets/**",
     "agents/**",
     "skills/**",
-    "tmp_shared_preflight/**",
 ]
 
 MANAGER_ROOTS = {

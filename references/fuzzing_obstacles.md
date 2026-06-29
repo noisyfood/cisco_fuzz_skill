@@ -52,23 +52,18 @@ Every patch needs:
 
 ## Cisco Live Constraints
 
-For `production_conservative` and `lab_minimal_one_shot` live devices:
+For live devices:
 
 - Do not bypass authentication, config, reload/action RPCs, or safety checks.
-- Do not change device configuration to reach a parser unless the user
-  explicitly authorizes that class of change.
+- Do not change device configuration to reach a parser when that action is
+  listed under `Forbidden`; otherwise record the action and expected effect in
+  campaign notes.
 - Use safe setup traffic, valid protocol state, and low-rate field sweeps.
 - Stop on health anomaly and collect evidence before continuing.
 
-If a path requires destructive state, mark it `needs_permission` instead of
-probing around the gate.
-
-For `destructive_lab`, destructive state can be an intended experiment rather
-than a blocker. The agent may change configuration, send state-changing RPCs,
-attach approved shell/debugger tooling, restart services, replay crash inputs,
-or trigger reload/DoS behavior when the matching action class is listed in
-`destructive_lab.allowed_destructive_actions`. Continue only while the required
-observers and crash attribution notes remain valid.
+If a path requires disruptive state, record the action class, threat-model
+justification, observers, and recovery path before testing. Continue only while
+the required observers and crash attribution notes remain valid.
 
 ## Shared-Library Constraints
 
